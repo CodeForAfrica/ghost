@@ -1,0 +1,59 @@
+services:
+
+  ghost:
+    build:
+      context: .
+    restart: always
+    depends_on:
+      - db
+      - minio
+    ports:
+      - 8080:2368
+    env_file: ghost.env
+    volumes:
+      - ghost:/var/lib/ghost/content
+
+  db:
+    image: mysql:8.0
+    restart: always
+    ports:
+      - 13306:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+    volumes:
+      - db:/var/lib/mysql
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    env_file: minio.env
+    command: server --console-address ":9001" /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  initialize-minio:
+    image: quay.io/minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c '
+      until (/usr/bin/mc alias set minio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}") do echo "...waiting..." && sleep 1; done;
+      /usr/bin/mc mb minio/"$${MINIO_BUCKET_NAME}";
+      /usr/bin/mc anonymous set download minio/"$${MINIO_BUCKET_NAME}";
+      /usr/bin/mc admin user add minio "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}";
+      /usr/bin/mc admin policy attach minio readwrite --user "$${MINIO_ACCESS_KEY}";
+      exit 0;
+      '
+    env_file: minio.env
+
+volumes:
+  ghost:
+  db:
+  minio_data:
