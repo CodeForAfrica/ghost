@@ -11,7 +11,7 @@ services:
         condition: service_healthy
     ports:
       - 8080:2368
-    env_file: ghost.env
+    env_file: .env
     volumes:
       - ghost:/var/lib/ghost/content
 
@@ -19,14 +19,13 @@ services:
     image: mysql:8.0
     restart: always
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pexample"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
       interval: 7s
       timeout: 5s
       retries: 3
     ports:
       - 13306:3306
-    environment:
-      MYSQL_ROOT_PASSWORD: example
+    env_file: .env
     volumes:
       - db:/var/lib/mysql
 
@@ -38,7 +37,7 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
-    env_file: minio.env
+    env_file: .env
     command: server --console-address ":9001" /data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
@@ -59,7 +58,7 @@ services:
       /usr/bin/mc admin policy attach minio readwrite --user "$${MINIO_ACCESS_KEY}";
       exit 0;
       '
-    env_file: minio.env
+    env_file: .env
 
 volumes:
   ghost:
