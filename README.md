@@ -2,6 +2,8 @@
 
 A production-ready Ghost blog platform configured with MinIO object storage for media files, using Docker Compose for container orchestration.
 
+This file covers local development and testing. For deployment to Dokku, see [DOKKU_DEPLOYMENT.md](DOKKU_DEPLOYMENT.md).
+
 ## Overview
 
 This project sets up a complete Ghost blogging platform with the following components:
@@ -27,7 +29,7 @@ This project sets up a complete Ghost blogging platform with the following compo
 3. Review and customize the environment variables in `.env` as needed
 4. Start the services:
    ```bash
-   docker compose up -d
+   docker compose up
    ```
 5. Access Ghost at `http://localhost:8080`
 6. Access MinIO Console at `http://localhost:9001`
