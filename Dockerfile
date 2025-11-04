@@ -10,6 +10,3 @@ RUN npm install --omit=dev
 
 # Return to the original working directory
 WORKDIR /var/lib/ghost
-
-# Start Ghost
-CMD ["node", "current/index.js"]
