@@ -1,7 +1,8 @@
 FROM ghost:6.5.3-alpine
 
 # Add the Object Store storage adapter
-ADD https://github.com/CodeForAfrica/ghost-object-store-storage-adapter.git content/adapters/storage/object-store
+# We use the main branch of the repository
+ADD https://github.com/CodeForAfrica/ghost-object-store-storage-adapter.git#main content/adapters/storage/object-store
 
 # Install dependencies for the storage adapter
 WORKDIR /var/lib/ghost/content/adapters/storage/object-store
