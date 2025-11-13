@@ -9,8 +9,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    ports:
-      - 8080:2368
     env_file: .env
     volumes:
       - ghost:/var/lib/ghost/content
