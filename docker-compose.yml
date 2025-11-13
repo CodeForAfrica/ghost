@@ -1,5 +1,13 @@
 services:
 
+  openresty:
+    image: openresty/openresty:1.27.1.2-0-alpine
+    restart: always
+    ports:
+      - 8069:8069
+    depends_on:
+      - ghost
+
   ghost:
     build:
       context: .
