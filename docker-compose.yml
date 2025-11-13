@@ -5,6 +5,8 @@ services:
     restart: always
     ports:
       - 8069:8069
+    volumes:
+      - ./nginx_rewrite.conf:/etc/nginx/conf.d/nginx_rewrite.conf
     depends_on:
       - ghost
 
