@@ -63,7 +63,13 @@ dokku config:set your-ghost-app-name \
   imageOptimization__srcsets=false
 ```
 
-### 5. Deploy to Dokku
+### 5. Set up Openresty proxy
+
+Since we're using a Lua script in our Nginx config file, we need to use the Openresty proxy on Dokku. The alternative would be to compile our own Nginx with Lua which isn't worth the effort given there's a working solution available.
+
+To set up and configure Openresty, follow [the instructions on the official Dokku docs](https://dokku.com/docs/networking/proxies/openresty/#switching-to-openresty)
+
+### 6. Deploy to Dokku
 
 ```bash
 # Add Dokku as a remote
@@ -81,7 +87,7 @@ If you need to specify Dokku-specific build settings, create a `dokku.json` file
 
 ```json
 {
-  "image": "ghost:6.5.3-alpine",
+  "image": "ghost:6.7.0-alpine",
   "proxy": {
     "web": {
       "port": 2368,

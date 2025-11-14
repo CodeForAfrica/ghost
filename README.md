@@ -8,7 +8,7 @@ This file covers local development and testing. For deployment to Dokku, see [DO
 
 This project sets up a complete Ghost blogging platform with the following components:
 
-- **Ghost**: Version 6.5.3 - Modern publishing platform
+- **Ghost**: Version 6.7.0 - Modern publishing platform
 - **MySQL**: Version 8.4.7 - Database for content management
 - **MinIO**: S3-compatible object storage for media files
 - **Custom Storage Adapter**: Object store adapter for S3-compatible storage
@@ -31,7 +31,7 @@ This project sets up a complete Ghost blogging platform with the following compo
    ```bash
    docker compose up
    ```
-5. Access Ghost at `http://localhost:8080`
+5. Access Ghost at `http://localhost:8069`
 6. Access MinIO Console at `http://localhost:9001`
 
 ## Configuration
@@ -63,7 +63,7 @@ The `.env` file contains configuration for all services:
 
 ### Services
 
-- **Ghost**: Runs on port 8080 (mapped from 2368)
+- **Ghost**: Runs on port 8069 (mapped from 2368)
 - **MySQL**: Runs on port 13306 (mapped from 3306)
 - **MinIO**: Runs on ports 9000 (API) and 9001 (Console)
 
