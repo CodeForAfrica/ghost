@@ -1,4 +1,5 @@
-FROM ghost:6.5.3-alpine
+ARG GHOST_VERSION=6.7.0
+FROM ghost:${GHOST_VERSION}-alpine
 
 # Add the Object Store storage adapter
 # We use the main branch of the repository
