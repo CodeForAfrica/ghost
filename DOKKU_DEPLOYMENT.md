@@ -67,7 +67,9 @@ dokku config:set your-ghost-app-name \
 
 Since we're using a Lua script in our Nginx config file, we need to use the Openresty proxy on Dokku. The alternative would be to compile our own Nginx with Lua which isn't worth the effort given there's a working solution available.
 
-To set up and configure Openresty, follow [the instructions on the official Dokku docs](https://dokku.com/docs/networking/proxies/openresty/#switching-to-openresty)
+To set up and configure Openresty, follow [the instructions on the official Dokku docs](https://dokku.com/docs/networking/proxies/openresty/#switching-to-openresty).
+
+See the [instructions here](https://dokku.com/docs/networking/proxies/openresty/#injecting-custom-snippets-into-the-openresty-config) on where to place the custom Nginx conf file `nginx_pesacheck_rewrite_urls.conf`.
 
 ### 6. Deploy to Dokku
 
