@@ -5,7 +5,7 @@ const logging = require('@tryghost/logging');
 const string = require('@tryghost/string');
 const path = require('path');
 const convert = require('heic-convert');
-const RateLimitManager = require('./RateLimitManager');
+const QueueManager = require('./QueueManager');
 
 class ExternalMediaInliner {
   /** @type {object} */
@@ -20,8 +20,8 @@ class ExternalMediaInliner {
   /** @type {object} */
   #UserModel;
 
-  /** @type {RateLimitManager} */
-  #rateLimitManager;
+  /** @type {QueueManager} */
+  #queueManager;
 
   /**
    *
@@ -32,13 +32,13 @@ class ExternalMediaInliner {
    * @param {Object} deps.UserModel - User model
    * @param {(extension) => import('ghost-storage-base')} deps.getMediaStorage - getMediaStorage
    */
-  constructor(deps, rateLimitOptions = {}) {
+  constructor(deps, queueOptions = {}) {
     this.#PostModel = deps.PostModel;
     this.#PostMetaModel = deps.PostMetaModel;
     this.#TagModel = deps.TagModel;
     this.#UserModel = deps.UserModel;
     this.getMediaStorage = deps.getMediaStorage;
-    this.#rateLimitManager = new RateLimitManager(rateLimitOptions);
+    this.#queueManager = new QueueManager(queueOptions);
   }
 
   /**
@@ -58,7 +58,7 @@ class ExternalMediaInliner {
     try {
       logging.info(`Queueing request for remote media: ${requestURL}`);
       // Use rate-limited request
-      const response = await this.#rateLimitManager.queueRequest(requestURL, {
+      const response = await this.#queueManager.queueRequest(requestURL, {
         followRedirect: true,
         responseType: 'buffer'
       });
@@ -68,7 +68,7 @@ class ExternalMediaInliner {
     } catch (error) {
       // NOTE: add special case for 404s and temporary errors
       const statusCode = error.statusCode || (error.response && error.response.status);
-      if (statusCode && this.#rateLimitManager.retryableStatusCodes.includes(statusCode)) {
+      if (statusCode && this.#queueManager.retryableStatusCodes.includes(statusCode)) {
         logging.warn(`Temporary error (${statusCode}) when downloading remote media: ${requestURL}`);
       } else {
         logging.error(`Error downloading remote media: ${requestURL}`);
@@ -427,7 +427,7 @@ class ExternalMediaInliner {
     await this.inlineSimpleFields(users, this.#UserModel, userInliningFields, domains, sharedUrlCache);
 
     // Wait for all queued requests to complete before finishing
-    await this.#rateLimitManager.waitForAllQueues();
+    await this.#queueManager.waitForAllQueues();
 
     // Clear the shared cache to free up memory
     sharedUrlCache.clear();

@@ -3,9 +3,9 @@ const logging = require('@tryghost/logging');
 const errors = require('@tryghost/errors');
 const { URL } = require('url');
 
-class RateLimitManager {
+class QueueManager {
   constructor(options = {}) {
-    // Domain-specific rate limits and queues
+    // Domain-specific settings and queues
     this.domainStats = new Map(); // Track domain-specific stats
     this.requestQueues = new Map(); // Queue for each domain
     this.activeRequests = new Map(); // Track active requests per domain
@@ -132,7 +132,7 @@ class RateLimitManager {
 
       const statusCode = error.statusCode || (error.response && error.response.status);
 
-      // If we got a retryable status code, increase the rate limit significantly
+      // If we got a retryable status code, increase the request interval significantly
       if (this.retryableStatusCodes.includes(statusCode)) {
         // Immediately set to a high rate limit if we're getting immediate rate limit responses
         if (domainStats.successCount === 0) {
@@ -144,7 +144,7 @@ class RateLimitManager {
           logging.warn(`Received status ${statusCode} from ${domain}, increasing interval to ${domainStats.minRequestInterval}ms`);
         }
       }
-      // If we have too many consecutive errors, also increase the rate limit
+      // If we have too many consecutive errors, also increase the request interval
       else if (domainStats.consecutiveErrors >= 2) {
         domainStats.minRequestInterval = Math.min(this.maxRequestInterval, domainStats.minRequestInterval * 2); // Max 15 seconds
         logging.info(`Too many consecutive errors for ${domain}, increasing interval to ${domainStats.minRequestInterval}ms`);
@@ -172,7 +172,7 @@ class RateLimitManager {
   }
 
   /**
-   * Make request with retry logic for 429s
+   * Make request with retry logic for retryable status codes
    */
   async makeRequestWithRetry(url, options, maxRetries = null, retryCount = 0) {
     // Use instance's maxRetries if not provided, otherwise use provided value
@@ -260,4 +260,4 @@ class RateLimitManager {
   }
 }
 
-module.exports = RateLimitManager;
+module.exports = QueueManager;
