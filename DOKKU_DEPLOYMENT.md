@@ -60,16 +60,25 @@ dokku config:set your-ghost-app-name \
   url=https://your-domain.com \
   NODE_ENV=production \
   imageOptimization__resize=false \
-  imageOptimization__srcsets=false
+  imageOptimization__srcsets=false \
+  mail__from=noreply@yourdomain.com \
+  mail__transport=SMTP \
+  mail__options__host=smtp.smtp-provider.com \
+  mail__options__port=587 \
+  mail__options__secure="true" \
+  mail__options__auth__user=smtp-user \
+  mail__options__auth__pass=SuperSecureSMTPPassword
 ```
 
-### 5. Set up Openresty proxy
+### 5. Set up Nginx proxy
 
-Since we're using a Lua script in our Nginx config file, we need to use the Openresty proxy on Dokku. The alternative would be to compile our own Nginx with Lua which isn't worth the effort given there's a working solution available.
+Since we're using a Lua script in our Nginx config file, we need to install the Lua module. On Ubuntu, this can be done by running:
 
-To set up and configure Openresty, follow [the instructions on the official Dokku docs](https://dokku.com/docs/networking/proxies/openresty/#switching-to-openresty).
+```sh
+sudo apt update && sudo apt install libnginx-mod-http-lua
+```
 
-See the [instructions here](https://dokku.com/docs/networking/proxies/openresty/#injecting-custom-snippets-into-the-openresty-config) on where to place the custom Nginx conf file `nginx_pesacheck_rewrite_urls.conf`.
+The Lua module should automatically be enabled via symlinking. You can confirm this by checking the contents of `/etc/nginx/modules-enabled/`.
 
 ### 6. Deploy to Dokku
 
