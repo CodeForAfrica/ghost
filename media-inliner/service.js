@@ -30,7 +30,6 @@ module.exports = {
     }, {
       // Configurable rate limiting options
       baseWaitOnRetry: config.get('mediaInliner')?.baseWaitOnRetry || 3000,
-      cacheTTL: config.get('mediaInliner')?.cacheTTL || 60 * 60 * 1000, // 60 minutes
       defaultRequestInterval: config.get('mediaInliner')?.defaultRequestInterval || 2000,
       maxConcurrentRequestsPerDomain: config.get('mediaInliner')?.maxConcurrentRequestsPerDomain || 1,
       maxRequestInterval: config.get('mediaInliner')?.maxRequestInterval || 15000,

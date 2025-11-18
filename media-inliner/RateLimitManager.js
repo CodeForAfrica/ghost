@@ -9,10 +9,8 @@ class RateLimitManager {
     this.domainStats = new Map(); // Track domain-specific stats
     this.requestQueues = new Map(); // Queue for each domain
     this.activeRequests = new Map(); // Track active requests per domain
-    this.responseCache = new Map(); // Cache responses to avoid duplicate requests
 
     this.baseWaitOnRetry = options.baseWaitOnRetry;
-    this.cacheTTL = options.cacheTTL;
     this.defaultRequestInterval = options.defaultRequestInterval;
     this.maxConcurrentRequestsPerDomain = options.maxConcurrentRequestsPerDomain;
     this.maxRequestInterval = options.maxRequestInterval;
@@ -204,44 +202,9 @@ class RateLimitManager {
   }
 
   /**
-   * Check if URL is in cache
-   */
-  getCachedResponse(url) {
-    const cached = this.responseCache.get(url);
-    if (cached) {
-      const now = Date.now();
-      if (now - cached.timestamp < this.cacheTTL) {
-        logging.info(`Cache hit for URL: ${url}`)
-        return cached.response;
-      } else {
-        // Remove expired cache entry
-        this.responseCache.delete(url);
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Cache response for URL
-   */
-  setCachedResponse(url, response) {
-    this.responseCache.set(url, {
-      response,
-      timestamp: Date.now(),
-      // Set the object path to null here then when we store the file, update it with a real path
-    });
-  }
-
-  /**
    * Add a request to the queue for a specific domain
    */
   async queueRequest(url, options) {
-    // Check if response is already cached
-    const cachedResponse = this.getCachedResponse(url);
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-
     return new Promise((resolve, reject) => {
       // Extract domain from URL
       let domain;
@@ -258,8 +221,6 @@ class RateLimitManager {
         url,
         options,
         resolve: (response) => {
-          // Cache successful responses
-          this.setCachedResponse(url, response);
           resolve(response);
         },
         reject
@@ -296,13 +257,6 @@ class RateLimitManager {
       };
       checkQueues();
     });
-  }
-
-  /**
-  * Clear the response cache
-  */
-  clearCache() {
-    this.responseCache.clear();
   }
 }
 

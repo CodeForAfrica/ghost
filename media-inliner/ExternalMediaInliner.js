@@ -1,6 +1,5 @@
 const mime = require('mime-types');
 const FileType = require('file-type');
-const request = require('@tryghost/request');
 const errors = require('@tryghost/errors');
 const logging = require('@tryghost/logging');
 const string = require('@tryghost/string');
@@ -429,8 +428,6 @@ class ExternalMediaInliner {
 
     // Wait for all queued requests to complete before finishing
     await this.#rateLimitManager.waitForAllQueues();
-    // Clear rate limit cache
-    this.#rateLimitManager.clearCache();
 
     // Clear the shared cache to free up memory
     sharedUrlCache.clear();
