@@ -1,5 +1,15 @@
 services:
 
+  openresty:
+    image: openresty/openresty:1.27.1.2-0-alpine
+    restart: always
+    ports:
+      - 8069:8069
+    volumes:
+      - ./contrib/compose/nginx_medium_rewrite_urls.conf:/etc/nginx/conf.d/nginx_medium_rewrite_urls.conf
+    depends_on:
+      - ghost
+
   ghost:
     build:
       context: .
@@ -9,8 +19,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    ports:
-      - 8080:2368
     env_file: .env
     volumes:
       - ghost:/var/lib/ghost/content
