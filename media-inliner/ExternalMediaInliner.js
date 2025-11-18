@@ -186,9 +186,13 @@ class ExternalMediaInliner {
    *
    * @param {string} content - stringified JSON of post Lexical or Mobiledoc content
    * @param {String[]} domains - domains to inline media from
+   * @param {Map} [sharedUrlCache] - Optional shared cache to store filePaths for URLs
    * @returns {Promise<string>} - updated stringified JSON of post content
    */
-  async inlineContent(content, domains) {
+  async inlineContent(content, domains, sharedUrlCache = null) {
+    // If no shared cache is provided, use a local one for this function
+    const urlCache = sharedUrlCache || new Map();
+
     for (const domain of domains) {
       const matches = this.constructor.findMatches(content, domain);
 
@@ -196,6 +200,24 @@ class ExternalMediaInliner {
       const uniqueMatches = [...new Set(matches)];
 
       for (const src of uniqueMatches) {
+        // Normalize the URL the same way as in getRemoteMedia to ensure cache consistency
+        const normalizedSrc = encodeURI(src.replace(/^\/\//g, 'http://'));
+
+        // Check if we already have the filePath for this URL in our cache
+        if (urlCache.has(normalizedSrc)) {
+          const filePath = urlCache.get(normalizedSrc);
+          const inlinedSrc = `__GHOST_URL__${filePath}`;
+
+          // Replace all occurrences of the original URL in content
+          // Use a global replace with proper escaping
+          const escapedSrc = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(escapedSrc, 'g');
+          content = content.replace(regex, inlinedSrc);
+
+          logging.info(`From cache: Inlined media: ${src} -> ${inlinedSrc}`);
+          continue; // Skip to the next URL since we already have the result from cache
+        }
+
         const response = await this.getRemoteMedia(src);
 
         let media;
@@ -216,6 +238,9 @@ class ExternalMediaInliner {
             content = content.replace(regex, inlinedSrc);
 
             logging.info(`Inlined media: ${src} -> ${inlinedSrc}`);
+
+            // Store the filePath in our cache with the normalized URL as key
+            urlCache.set(normalizedSrc, filePath);
           }
         }
       }
@@ -229,9 +254,12 @@ class ExternalMediaInliner {
    * @param {Object} resourceModel - one of PostModel, TagModel, UserModel instances
    * @param {String[]} fields - fields to inline
    * @param {String[]} domains - domains to inline media from
-   * @returns Promise<Object> - updated fields map with local media paths
+   * @param {Map} [sharedUrlCache] - Optional shared cache to store filePaths for URLs
+   * @returns Promise<Object} - updated fields map with local media paths
    */
-  async inlineFields(resourceModel, fields, domains) {
+  async inlineFields(resourceModel, fields, domains, sharedUrlCache = null) {
+    // If no shared cache is provided, use a local one for this function
+    const urlCache = sharedUrlCache || new Map();
     const updatedFields = {};
 
     for (const field of fields) {
@@ -239,6 +267,19 @@ class ExternalMediaInliner {
         const src = resourceModel.get(field);
 
         if (src && src.startsWith(domain)) {
+          // Normalize the URL the same way as in getRemoteMedia to ensure cache consistency
+          const normalizedSrc = encodeURI(src.replace(/^\/\//g, 'http://'));
+
+          // Check if we already have the filePath for this URL in our cache
+          if (urlCache.has(normalizedSrc)) {
+            const filePath = urlCache.get(normalizedSrc);
+            const inlinedSrc = `__GHOST_URL__${filePath}`;
+
+            updatedFields[field] = inlinedSrc;
+            logging.info(`From cache: Added media to inline: ${src} -> ${inlinedSrc}`);
+            continue; // Skip to the next field since we already have the result from cache
+          }
+
           const response = await this.getRemoteMedia(src);
 
           let media;
@@ -254,6 +295,9 @@ class ExternalMediaInliner {
 
               updatedFields[field] = inlinedSrc;
               logging.info(`Added media to inline: ${src} -> ${inlinedSrc}`);
+
+              // Store the filePath in our cache with the normalized URL as key
+              urlCache.set(normalizedSrc, filePath);
             }
           }
         }
@@ -269,13 +313,14 @@ class ExternalMediaInliner {
    * @param {Object} model - resource model
    * @param {string[]} fields - fields to inline
    * @param {string[]} domains - domains to inline media from
+   * @param {Map} [sharedUrlCache] - Optional shared cache to store filePaths for URLs
    */
-  async inlineSimpleFields(resources, model, fields, domains) {
+  async inlineSimpleFields(resources, model, fields, domains, sharedUrlCache = null) {
     logging.info(`Starting inlining external media for ${resources?.length} resources and with ${fields.join(', ')} fields`);
 
     for (const resource of resources) {
       try {
-        const updatedFields = await this.inlineFields(resource, fields, domains);
+        const updatedFields = await this.inlineFields(resource, fields, domains, sharedUrlCache);
 
         if (Object.keys(updatedFields).length > 0) {
           await model.edit(updatedFields, {
@@ -299,6 +344,9 @@ class ExternalMediaInliner {
    * @param {string[]} domains domains to inline media from
    */
   async inline(domains) {
+    // Create a shared cache for the entire operation to avoid processing the same URL multiple times
+    const sharedUrlCache = new Map();
+
     const posts = await this.#PostModel.findAll({ context: { internal: true } });
     const postsInilingFields = [
       'feature_image'
@@ -311,10 +359,10 @@ class ExternalMediaInliner {
         const mobiledocContent = post.get('mobiledoc');
         const lexicalContent = post.get('lexical');
 
-        const updatedFields = await this.inlineFields(post, postsInilingFields, domains);
+        const updatedFields = await this.inlineFields(post, postsInilingFields, domains, sharedUrlCache);
 
         if (mobiledocContent) {
-          const inlinedContent = await this.inlineContent(mobiledocContent, domains);
+          const inlinedContent = await this.inlineContent(mobiledocContent, domains, sharedUrlCache);
 
           // If content has changed, update the post
           if (inlinedContent !== mobiledocContent) {
@@ -323,7 +371,7 @@ class ExternalMediaInliner {
         }
 
         if (lexicalContent) {
-          const inlinedContent = await this.inlineContent(lexicalContent, domains);
+          const inlinedContent = await this.inlineContent(lexicalContent, domains, sharedUrlCache);
 
           // If content has changed, update the post
           if (inlinedContent !== lexicalContent) {
@@ -355,7 +403,8 @@ class ExternalMediaInliner {
       'twitter_image'
     ];
 
-    await this.inlineSimpleFields(postsMetas, this.#PostMetaModel, postsMetaInilingFields, domains);
+    // We need to update inlineSimpleFields to pass the cache as well
+    await this.inlineSimpleFields(postsMetas, this.#PostMetaModel, postsMetaInilingFields, domains, sharedUrlCache);
 
     const { data: tags } = await this.#TagModel.findPage({
       limit: 'all'
@@ -366,7 +415,7 @@ class ExternalMediaInliner {
       'twitter_image'
     ];
 
-    await this.inlineSimpleFields(tags, this.#TagModel, tagInliningFields, domains);
+    await this.inlineSimpleFields(tags, this.#TagModel, tagInliningFields, domains, sharedUrlCache);
 
     const { data: users } = await this.#UserModel.findPage({
       limit: 'all'
@@ -376,12 +425,15 @@ class ExternalMediaInliner {
       'cover_image'
     ];
 
-    await this.inlineSimpleFields(users, this.#UserModel, userInliningFields, domains);
+    await this.inlineSimpleFields(users, this.#UserModel, userInliningFields, domains, sharedUrlCache);
 
     // Wait for all queued requests to complete before finishing
     await this.#rateLimitManager.waitForAllQueues();
     // Clear rate limit cache
     this.#rateLimitManager.clearCache();
+
+    // Clear the shared cache to free up memory
+    sharedUrlCache.clear();
 
     logging.info('Finished inlining external media for posts, tags, and users');
   }

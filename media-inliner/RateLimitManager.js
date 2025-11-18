@@ -106,6 +106,7 @@ class RateLimitManager {
       const startTime = Date.now();
       const result = await this.makeRequestWithRetry(requestItem.url, requestItem.options);
       const responseTime = Date.now() - startTime;
+      const jitter = 1 + (0.15 + (Math.random() * 0.55));
 
       // Update stats for successful request
       domainStats.successCount++;
@@ -115,11 +116,11 @@ class RateLimitManager {
       // If responses are slow, we should slow down to be respectful
       if (responseTime <= this.minExpectedResponseTime) {
         // We can potentially make requests more frequently, but conservatively
-        domainStats.minRequestInterval = Math.max(this.minRequestInterval, domainStats.minRequestInterval * 0.95);
+        domainStats.minRequestInterval = Math.max(this.minRequestInterval * jitter, domainStats.minRequestInterval * 0.95);
         logging.info(`Fast response from ${domain}, decreasing interval to ${Math.round(domainStats.minRequestInterval)}ms`);
       } else if (responseTime > this.minExpectedResponseTime) {
         // Be more respectful to the server
-        domainStats.minRequestInterval = Math.min(this.maxRequestInterval, domainStats.minRequestInterval * 1.1);
+        domainStats.minRequestInterval = Math.min(this.maxRequestInterval * jitter, domainStats.minRequestInterval * 1.1);
         logging.info(`Slow response from ${domain}, increasing interval to ${Math.round(domainStats.minRequestInterval)}ms`);
       }
 
