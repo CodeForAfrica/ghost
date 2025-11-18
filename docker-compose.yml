@@ -6,7 +6,7 @@ services:
     ports:
       - 8069:8069
     volumes:
-      - ./nginx_medium_rewrite_urls.conf:/etc/nginx/conf.d/nginx_medium_rewrite_urls.conf
+      - ./contrib/compose/nginx_medium_rewrite_urls.conf:/etc/nginx/conf.d/nginx_medium_rewrite_urls.conf
     depends_on:
       - ghost
 
