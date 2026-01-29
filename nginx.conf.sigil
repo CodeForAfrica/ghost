@@ -38,12 +38,28 @@ map $uri $needs_conversion {
   default        "no";
 }
 
+# Set up a JSON log format for better structured logging.
+log_format json escape=json
+  '{'
+    '"timestamp": "$time_iso8601",'
+    '"client_ip": "$remote_addr",'
+    '"request_id": "$request_id",'
+    '"http_method": "$request_method",'
+    '"http_path": "$uri",'
+    '"protocol": "$server_protocol",'
+    '"user_agent": "$http_user_agent",'
+    '"referer": "$http_referer",'
+    '"status_code": $status,'
+    '"bytes_sent": $body_bytes_sent,'
+    '"request_time_secs": $request_time'
+  '}';
+
 server {
   listen      [::]:80;
   listen      80;
   server_name {{ .NOSSL_SERVER_NAME }};
 
-  access_log  /var/log/nginx/{{ .APP }}-access.log;
+  access_log  /var/log/nginx/{{ .APP }}-access.log json;
   error_log   /var/log/nginx/{{ .APP }}-error.log;
   underscores_in_headers off;
 
