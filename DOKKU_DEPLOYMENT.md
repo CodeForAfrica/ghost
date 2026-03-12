@@ -6,7 +6,6 @@ Instructions for deploying Ghost with external database and S3 object storage on
 
 - Dokku instance set up and running
 - SSH access to your Dokku server
-- Git installed locally
 - External database (MySQL) with credentials
 - S3-compatible storage (AWS S3, DigitalOcean Spaces, etc.) with credentials
 
@@ -80,15 +79,20 @@ sudo apt update && sudo apt install libnginx-mod-http-lua
 
 The Lua module should automatically be enabled via symlinking. You can confirm this by checking the contents of `/etc/nginx/modules-enabled/`.
 
-### 6. Deploy to Dokku
+## Deploying to Dokku
+
+It is recommended that you use Docker image deployment on Dokku, as it allows you to use a pre-built Ghost image (like the one defined in this repo). To deploy using Docker images, run:
 
 ```bash
-# Add Dokku as a remote
-git remote add dokku dokku@your-server-ip:your-ghost-app-name
+# On the Dokku server
+dokku git:from-image your-ghost-app-name registry-account-name/image-name:tag
 
-# Push to deploy
-git push dokku main
+e.g.
+dokku git:from-image pesacheck codeforafrica/pesacheck-ghost:v6.21.2
 ```
+
+This should pull the specified Ghost image and deploy it as your Dokku app. Make sure to replace `your-ghost-app-name` and `registry-account-name/image-name:tag` with the actual values you want to use.
+
 
 ## Dokku-Specific Configuration Files
 
