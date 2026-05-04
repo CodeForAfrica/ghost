@@ -171,6 +171,26 @@ server {
   lingering_timeout 5s;
   send_timeout 60s;
 
+  # gzip applies to every location in this server. Hoisted out of `location /` because gzip directives don't inherit across sibling
+  # location blocks — without this, the static / feeds / sitemap blocks would serve uncompressed responses.
+  #
+  # gzip_proxied any: nginx's default skips gzip on proxy_pass'd responses; this turns it back on. Required for any of these
+  # directives to take effect since everything here is proxied to Ghost.
+  #
+  # Cache interaction: nginx caches the uncompressed body and applies gzip per-request based on the client's Accept-Encoding, so a single
+  # cache entry serves both gzip-capable and legacy clients correctly.
+  gzip on;
+  gzip_proxied any;
+  gzip_min_length 1100;
+  gzip_buffers 4 32k;
+  gzip_types text/css text/javascript text/xml text/plain text/x-component
+             application/javascript application/x-javascript application/json
+             application/xml application/rss+xml application/atom+xml
+             font/truetype application/x-font-ttf font/opentype
+             application/vnd.ms-fontobject image/svg+xml;
+  gzip_vary on;
+  gzip_comp_level 6;
+
   # Sitemap routes: even longer TTL than feeds because search engine crawlers tolerate hours of staleness and Ghost regenerates these on
   # post publish/update anyway. Matches the index (/sitemap.xml) and the five sub-sitemaps Ghost emits (/sitemap-pages.xml, -posts, -tags,
   # -authors). Regex location, so Lua rewriter is skipped — paths are ASCII and won't carry Medium-ID suffixes.
@@ -186,6 +206,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  1h;
     proxy_cache_valid   404           5m;
+    # Ghost sends Cache-Control: max-age=0 on sitemaps, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     proxy_cache_lock              on;
     proxy_cache_lock_timeout      5s;
@@ -218,6 +240,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  10m;
     proxy_cache_valid   404           1m;
+    # Ghost sends Cache-Control: max-age=0 on feeds and xml, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     proxy_cache_lock              on;
     proxy_cache_lock_timeout      5s;
@@ -234,13 +258,45 @@ server {
     add_header X-Cache-Status $upstream_cache_status always;
   }
 
+  # Static assets: Ghost (and the object-store adapter for /content/images) send Cache-Control: max-age=2592000 (30 days) on these. Trust upstream's
+  # hint instead of forcing our short HTML TTL — that way a hot asset stays cached on disk for its full 30 days and we don't churn the origin every
+  # 30s for files that haven't changed in months.
+  #
+  # Deliberately scoped to /content/images, /assets, /public:
+  #   - /content/images is always public (post imagery)
+  #   - /assets and /public are theme/frontend bundles, never personalized
+  # /content/files is intentionally excluded — those may be member-gated and belong on the HTML path with its bypass machinery.
+  location ~* ^/(content/images|assets|public)/ {
+    proxy_pass  http://{{ .APP }};
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_cache         ghost;
+    proxy_cache_key     "$scheme$host$request_uri";
+    # No proxy_cache_valid here — TTL is driven by upstream Cache-Control.
+    # No proxy_ignore_headers — we want to honor Ghost's long max-age.
+    # Fallback for responses with no Cache-Control: cache for 1h.
+    proxy_cache_valid   200 301 302  1h;
+    proxy_cache_valid   404           1m;
+
+    proxy_cache_lock              on;
+    proxy_cache_lock_timeout      5s;
+    proxy_cache_lock_age          10s;
+    proxy_cache_use_stale         updating error timeout
+                                  http_500 http_502 http_503 http_504;
+    proxy_cache_background_update on;
+
+    proxy_cache_bypass  $ghost_bypass_method;
+    proxy_no_cache      $ghost_bypass_method;
+
+    add_header X-Cache-Status $upstream_cache_status always;
+  }
+
   location    / {
-    gzip on;
-    gzip_min_length  1100;
-    gzip_buffers  4 32k;
-    gzip_types    text/css text/javascript text/xml text/plain text/x-component application/javascript application/x-javascript application/json application/xml  application/rss+xml font/truetype application/x-font-ttf font/opentype application/vnd.ms-fontobject image/svg+xml;
-    gzip_vary on;
-    gzip_comp_level  6;
+    # gzip is configured at server context above; applies here too.
 
     # Check if conversion is needed using the map
     access_by_lua_block {
@@ -335,6 +391,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  30s;
     proxy_cache_valid   404           10s;
+    # Ghost sends Cache-Control: max-age=0 on public HTML, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     # Collapse concurrent cold misses for the same key onto a single upstream request. Waiters block until the holder responds or the timeout fires.
     proxy_cache_lock              on;
