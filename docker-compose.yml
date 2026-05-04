@@ -6,6 +6,7 @@ services:
       - 8069:8069
     volumes:
       - ./contrib/compose/nginx_medium_rewrite_urls.conf:/etc/nginx/conf.d/nginx_medium_rewrite_urls.conf
+      - nginx_cache:/var/cache/nginx/ghost
     depends_on:
       - ghost
 
@@ -68,3 +69,4 @@ volumes:
   ghost:
   db:
   minio_data:
+  nginx_cache:

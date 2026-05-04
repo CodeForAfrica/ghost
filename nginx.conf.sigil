@@ -38,6 +38,76 @@ map $uri $needs_conversion {
   default        "no";
 }
 
+# Origin micro-cache. Sits in front of Ghost to absorb Cloudflare cache misses during traffic spikes so the DB connection pool is never exhausted.
+# levels=1:2 spreads files across subdirectories; keys_zone holds metadata in shared memory (50m ~= 400k keys). max_size caps disk usage; inactive evicts
+# entries not requested for 1h regardless of TTL.
+proxy_cache_path /var/cache/nginx/{{ .APP }} levels=1:2 keys_zone=ghost:50m
+                 max_size=2g inactive=1h use_temp_path=off;
+
+# Bypass the cache entirely for logged-in members and Ghost admin/staff.
+# Both proxy_cache_bypass (don't serve from cache) and proxy_no_cache (don't store in cache) read this — setting only one is the classic foot-gun that
+# leaks personalized responses to anonymous visitors.
+map $http_cookie $ghost_bypass_cookie {
+  default                       0;
+  "~*ghost-members"             1;   # member SSR sessions (front-end)
+  "~*ghost-admin-api-session"   1;   # staff/admin sessions
+}
+
+# Bypass for mutating methods (POST/PUT/PATCH/DELETE).
+map $request_method $ghost_bypass_method {
+  default 0;
+  POST    1;
+  PUT     1;
+  PATCH   1;
+  DELETE  1;
+}
+
+# Bypass for admin UI, admin API, and members auth endpoints.
+map $request_uri $ghost_bypass_path {
+  default              0;
+  "~^/ghost/"          1;
+  "~^/members/api/"    1;
+  "~^/members/auth/"   1;
+}
+
+# Cloudflare real-IP unwrapping. Without this, $remote_addr is whichever Cloudflare edge IP forwarded the request, which (a) makes access logs
+# useless for tracing abuse, (b) defeats per-IP rate limits, and (c) sends Cloudflare's IP to Ghost in X-Forwarded-For instead of the real visitor.
+#
+# After this block, $remote_addr is rewritten to the value of the CF-Connecting-IP header — but only when the request actually came from a
+# Cloudflare edge IP listed below. Direct hits to the origin (someone who discovered the origin IP) keep their real $remote_addr and can't spoof
+# CF-Connecting-IP.
+#
+# Source of truth, refresh periodically:
+#   https://www.cloudflare.com/ips-v4
+#   https://www.cloudflare.com/ips-v6
+#
+# Requires the ngx_http_realip_module — included in the standard
+# nginx-full / nginx-extras packages on Ubuntu, so already present on Dokku.
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header   CF-Connecting-IP;
+real_ip_recursive on;
+
 # Set up a JSON log format for better structured logging.
 log_format json escape=json
   '{'
@@ -100,6 +170,69 @@ server {
   keepalive_timeout 75s;
   lingering_timeout 5s;
   send_timeout 60s;
+
+  # Sitemap routes: even longer TTL than feeds because search engine crawlers tolerate hours of staleness and Ghost regenerates these on
+  # post publish/update anyway. Matches the index (/sitemap.xml) and the five sub-sitemaps Ghost emits (/sitemap-pages.xml, -posts, -tags,
+  # -authors). Regex location, so Lua rewriter is skipped — paths are ASCII and won't carry Medium-ID suffixes.
+  location ~* ^/sitemap(-[a-z]+)?\.xml$ {
+    proxy_pass  http://{{ .APP }};
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_cache         ghost;
+    proxy_cache_key     "$scheme$host$request_uri";
+    proxy_cache_valid   200 301 302  1h;
+    proxy_cache_valid   404           5m;
+
+    proxy_cache_lock              on;
+    proxy_cache_lock_timeout      5s;
+    proxy_cache_lock_age          10s;
+    proxy_cache_use_stale         updating error timeout
+                                  http_500 http_502 http_503 http_504;
+    proxy_cache_background_update on;
+
+    proxy_cache_bypass  $ghost_bypass_method;
+    proxy_no_cache      $ghost_bypass_method;
+
+    add_header X-Cache-Status $upstream_cache_status always;
+  }
+
+  # Feed routes: longer TTL because RSS readers (Feedly, Inoreader, etc.) poll on a schedule and tolerate minutes of staleness. Same cache and
+  # bypass machinery as the main location, just with a 10-minute valid window so polls collapse onto ~6 origin requests/hour total instead of
+  # one per poller per 30s.
+  #
+  # Note: this is a regex location and wins over `location /`, so the Lua URL rewriter is skipped here. That's fine — /rss, /feed, and /*.xml
+  # are ASCII and don't carry Medium-ID suffixes.
+  location ~* ^/(rss|feed)(/|$|\.xml$) {
+    proxy_pass  http://{{ .APP }};
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_cache         ghost;
+    proxy_cache_key     "$scheme$host$request_uri";
+    proxy_cache_valid   200 301 302  10m;
+    proxy_cache_valid   404           1m;
+
+    proxy_cache_lock              on;
+    proxy_cache_lock_timeout      5s;
+    proxy_cache_lock_age          10s;
+    proxy_cache_use_stale         updating error timeout
+                                  http_500 http_502 http_503 http_504;
+    proxy_cache_background_update on;
+
+    # Defense in depth — feed readers don't carry member cookies in
+    # practice, but skip cache for them anyway if they ever appear.
+    proxy_cache_bypass  $ghost_bypass_cookie $ghost_bypass_method;
+    proxy_no_cache      $ghost_bypass_cookie $ghost_bypass_method;
+
+    add_header X-Cache-Status $upstream_cache_status always;
+  }
 
   location    / {
     gzip on;
@@ -194,6 +327,32 @@ server {
     proxy_set_header X-Forwarded-Port $server_port;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Request-Start $msec;
+
+    # ---- Origin micro-cache ------------------------------------------------
+    # Cache anonymous GET/HEAD responses for 30s. The trio (cache_lock + use_stale updating + background_update) prevents the
+    # thundering herd: at TTL expiry, ONE request refreshes the cache in the background while every other concurrent request is served stale instantly.
+    proxy_cache         ghost;
+    proxy_cache_key     "$scheme$host$request_uri";
+    proxy_cache_valid   200 301 302  30s;
+    proxy_cache_valid   404           10s;
+
+    # Collapse concurrent cold misses for the same key onto a single upstream request. Waiters block until the holder responds or the timeout fires.
+    proxy_cache_lock              on;
+    proxy_cache_lock_timeout      5s;
+    proxy_cache_lock_age          10s;
+
+    # Serve stale while a refresh is in flight, and as a fallback if the origin is failing — keeps the site up even if Ghost or the DB are sick.
+    proxy_cache_use_stale         updating error timeout
+                                  http_500 http_502 http_503 http_504;
+    proxy_cache_background_update on;
+
+    # Skip the cache for logged-in members, admin, mutating methods, and admin/auth paths. Both directives are required: bypass means "don't
+    # serve from cache", no_cache means "don't store this response".
+    proxy_cache_bypass  $ghost_bypass_cookie $ghost_bypass_method $ghost_bypass_path;
+    proxy_no_cache      $ghost_bypass_cookie $ghost_bypass_method $ghost_bypass_path;
+
+    # Surface cache state for debugging (HIT / MISS / BYPASS / UPDATING / STALE).
+    add_header X-Cache-Status $upstream_cache_status always;
   }
   include {{ .DOKKU_ROOT }}/{{ .APP }}/nginx.conf.d/*.conf;
 }
