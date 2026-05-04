@@ -206,6 +206,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  1h;
     proxy_cache_valid   404           5m;
+    # Ghost sends Cache-Control: max-age=0 on sitemaps, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     proxy_cache_lock              on;
     proxy_cache_lock_timeout      5s;
@@ -238,6 +240,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  10m;
     proxy_cache_valid   404           1m;
+    # Ghost sends Cache-Control: max-age=0 on feeds and xml, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     proxy_cache_lock              on;
     proxy_cache_lock_timeout      5s;
@@ -387,6 +391,8 @@ server {
     proxy_cache_key     "$scheme$host$request_uri";
     proxy_cache_valid   200 301 302  30s;
     proxy_cache_valid   404           10s;
+    # Ghost sends Cache-Control: max-age=0 on public HTML, which would override proxy_cache_valid. Tell Nginx to honour our TTL instead.
+    proxy_ignore_headers Cache-Control Expires X-Accel-Expires;
 
     # Collapse concurrent cold misses for the same key onto a single upstream request. Waiters block until the holder responds or the timeout fires.
     proxy_cache_lock              on;
