@@ -171,6 +171,26 @@ server {
   lingering_timeout 5s;
   send_timeout 60s;
 
+  # gzip applies to every location in this server. Hoisted out of `location /` because gzip directives don't inherit across sibling
+  # location blocks — without this, the static / feeds / sitemap blocks would serve uncompressed responses.
+  #
+  # gzip_proxied any: nginx's default skips gzip on proxy_pass'd responses; this turns it back on. Required for any of these
+  # directives to take effect since everything here is proxied to Ghost.
+  #
+  # Cache interaction: nginx caches the uncompressed body and applies gzip per-request based on the client's Accept-Encoding, so a single
+  # cache entry serves both gzip-capable and legacy clients correctly.
+  gzip on;
+  gzip_proxied any;
+  gzip_min_length 1100;
+  gzip_buffers 4 32k;
+  gzip_types text/css text/javascript text/xml text/plain text/x-component
+             application/javascript application/x-javascript application/json
+             application/xml application/rss+xml application/atom+xml
+             font/truetype application/x-font-ttf font/opentype
+             application/vnd.ms-fontobject image/svg+xml;
+  gzip_vary on;
+  gzip_comp_level 6;
+
   # Sitemap routes: even longer TTL than feeds because search engine crawlers tolerate hours of staleness and Ghost regenerates these on
   # post publish/update anyway. Matches the index (/sitemap.xml) and the five sub-sitemaps Ghost emits (/sitemap-pages.xml, -posts, -tags,
   # -authors). Regex location, so Lua rewriter is skipped — paths are ASCII and won't carry Medium-ID suffixes.
@@ -235,12 +255,7 @@ server {
   }
 
   location    / {
-    gzip on;
-    gzip_min_length  1100;
-    gzip_buffers  4 32k;
-    gzip_types    text/css text/javascript text/xml text/plain text/x-component application/javascript application/x-javascript application/json application/xml  application/rss+xml font/truetype application/x-font-ttf font/opentype application/vnd.ms-fontobject image/svg+xml;
-    gzip_vary on;
-    gzip_comp_level  6;
+    # gzip is configured at server context above; applies here too.
 
     # Check if conversion is needed using the map
     access_by_lua_block {
