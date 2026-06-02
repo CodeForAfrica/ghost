@@ -1,0 +1,178 @@
+name: Create Release and Publish Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_kind:
+        description: Release type.
+        required: true
+        type: choice
+        default: upstream
+        options:
+          - upstream
+          - local
+      ghost_version:
+        description: Ghost version without v, for example 6.37.0.
+        required: true
+        type: string
+      local_patch:
+        description: Local patch suffix. Use auto or 0.0.N.
+        required: false
+        type: string
+        default: auto
+      target_ref:
+        description: Commit, branch, or tag to release.
+        required: false
+        type: string
+        default: main
+      release_notes:
+        description: Additional release notes.
+        required: false
+        type: string
+
+jobs:
+  create_release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.derive_release.outputs.tag_name }}
+    steps:
+      - name: Check out target ref
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+
+      - name: Derive and validate release
+        id: derive_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          GHOST_VERSION: ${{ inputs.ghost_version }}
+          LOCAL_PATCH: ${{ inputs.local_patch }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GHOST_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::ghost_version must match X.Y.Z, got: $GHOST_VERSION"
+            exit 1
+          fi
+
+          case "$RELEASE_KIND" in
+            upstream|local) ;;
+            *)
+              echo "::error::release_kind must be upstream or local, got: $RELEASE_KIND"
+              exit 1
+              ;;
+          esac
+
+          dockerfile_version="$(awk -F= '/^ARG[[:space:]]+GHOST_VERSION=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' Dockerfile)"
+          if [[ "$dockerfile_version" != "$GHOST_VERSION" ]]; then
+            echo "::error::Dockerfile pins Ghost $dockerfile_version, but requested $GHOST_VERSION"
+            exit 1
+          fi
+
+          git fetch --force origin main:refs/remotes/origin/main
+          git fetch --force --tags origin
+
+          target_sha="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$target_sha" refs/remotes/origin/main; then
+            echo "::error::Target commit $target_sha is not reachable from origin/main"
+            exit 1
+          fi
+
+          base_tag="v${GHOST_VERSION}"
+
+          if [[ "$RELEASE_KIND" == "upstream" ]]; then
+            tag_name="$base_tag"
+            release_name="$GHOST_VERSION"
+          else
+            if ! git rev-parse -q --verify "refs/tags/${base_tag}" >/dev/null; then
+              echo "::error::Local releases require the upstream base tag ${base_tag} to exist"
+              exit 1
+            fi
+
+            if [[ -z "$LOCAL_PATCH" || "$LOCAL_PATCH" == "auto" ]]; then
+              max_patch=0
+              while IFS= read -r existing_tag; do
+                patch_number="${existing_tag#${base_tag}-0.0.}"
+                if [[ "$patch_number" =~ ^[0-9]+$ ]] && (( patch_number > max_patch )); then
+                  max_patch="$patch_number"
+                fi
+              done < <(git tag --list "${base_tag}-0.0.*")
+              local_patch="0.0.$((max_patch + 1))"
+            else
+              local_patch="$LOCAL_PATCH"
+              if [[ ! "$local_patch" =~ ^0\.0\.[0-9]+$ ]]; then
+                echo "::error::local_patch must be auto or 0.0.N, got: $local_patch"
+                exit 1
+              fi
+            fi
+
+            tag_name="${base_tag}-${local_patch}"
+            release_name="${GHOST_VERSION}-${local_patch}"
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${tag_name}" >/dev/null; then
+            echo "::error::Tag already exists: $tag_name"
+            exit 1
+          fi
+
+          if gh release view "$tag_name" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release already exists: $tag_name"
+            exit 1
+          fi
+
+          {
+            echo "tag_name=$tag_name"
+            echo "release_name=$release_name"
+            echo "target_sha=$target_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          GHOST_VERSION: ${{ inputs.ghost_version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          TAG_NAME: ${{ steps.derive_release.outputs.tag_name }}
+          RELEASE_NAME: ${{ steps.derive_release.outputs.release_name }}
+          TARGET_SHA: ${{ steps.derive_release.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          notes_file="$(mktemp)"
+          {
+            printf 'Docker image: `codeforafrica/pesacheck-ghost:%s`\n\n' "$TAG_NAME"
+            printf 'Ghost version: `%s`\n' "$GHOST_VERSION"
+            printf 'Release kind: `%s`\n' "$RELEASE_KIND"
+            printf 'Source commit: `%s`\n' "$TARGET_SHA"
+
+            if [[ -n "$RELEASE_NOTES" ]]; then
+              printf '\n%s\n' "$RELEASE_NOTES"
+            fi
+          } > "$notes_file"
+
+          gh release create "$TAG_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "$RELEASE_NAME" \
+            --notes-file "$notes_file"
+
+  publish:
+    name: Publish Docker image
+    needs: create_release
+    uses: ./.github/workflows/_publish-docker-image.yaml
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+    with:
+      ref: ${{ needs.create_release.outputs.tag_name }}
+      tag_name: ${{ needs.create_release.outputs.tag_name }}
+    secrets: inherit
