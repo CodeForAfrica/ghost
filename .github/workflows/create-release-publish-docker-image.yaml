@@ -26,7 +26,7 @@ on:
         type: string
         default: main
       release_notes:
-        description: Additional release notes.
+        description: Additional release notes to prepend before generated GitHub notes.
         required: false
         type: string
 
@@ -157,11 +157,14 @@ jobs:
             fi
           } > "$notes_file"
 
+          prepended_notes="$(cat "$notes_file")"
+
           gh release create "$TAG_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
             --title "$RELEASE_NAME" \
-            --notes-file "$notes_file"
+            --notes "$prepended_notes" \
+            --generate-notes
 
   publish:
     name: Publish Docker image

@@ -96,7 +96,7 @@ Before deploying to Dokku, publish the image from GitHub Actions.
    - `ghost_version`: the Ghost version without the `v` prefix, for example `6.37.0`. This must already match `ARG GHOST_VERSION` in `Dockerfile`.
    - `local_patch`: use `auto` for local releases unless you need a specific `0.0.N` suffix.
    - `target_ref`: usually `main`.
-   - `release_notes`: optional notes for the GitHub release.
+   - `release_notes`: optional notes to add before GitHub's generated release notes. The workflow automatically includes merged PR titles and contributors.
 6. Wait for the workflow to create the GitHub release and push the Docker image to Docker Hub.
 
 The workflow uses these tag patterns:
