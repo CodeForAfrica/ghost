@@ -73,7 +73,7 @@ dokku config:set your-ghost-app-name \
 
 Since we're using a Lua script in our Nginx config file, we need to install the Lua module. On Ubuntu, this can be done by running:
 
-```sh
+```bash
 sudo apt update && sudo apt install libnginx-mod-http-lua
 ```
 
@@ -81,17 +81,40 @@ The Lua module should automatically be enabled via symlinking. You can confirm t
 
 ## Deploying to Dokku
 
-It is recommended that you use Docker image deployment on Dokku, as it allows you to use a pre-built Ghost image (like the one defined in this repo). To deploy using Docker images, run:
+It is recommended that you use Docker image deployment on Dokku, as it allows you to use a pre-built Ghost image (like the one defined in this repo).
+
+Before deploying to Dokku, publish the image from GitHub Actions.
+
+**Important:** for a new Ghost upstream version, update `ARG GHOST_VERSION` in `Dockerfile` first and merge that change into `main`. Do not create a release until `Dockerfile` already points at the Ghost version you want to publish. The release workflow validates this and fails if `ghost_version` does not exactly match `ARG GHOST_VERSION`.
+
+1. Open the repository in GitHub.
+2. Go to **Actions**.
+3. Select **Create Release and Publish Docker Image**.
+4. Click **Run workflow**.
+5. Fill in the release inputs:
+   - `release_kind`: use `upstream` when the release tracks a Ghost upstream version, or `local` when the release only contains local repository changes.
+   - `ghost_version`: the Ghost version without the `v` prefix, for example `6.37.0`. This must already match `ARG GHOST_VERSION` in `Dockerfile`.
+   - `local_patch`: use `auto` for local releases unless you need a specific `0.0.N` suffix.
+   - `target_ref`: usually `main`.
+   - `release_notes`: optional notes for the GitHub release.
+6. Wait for the workflow to create the GitHub release and push the Docker image to Docker Hub.
+
+The workflow uses these tag patterns:
+
+- Upstream release: `ghost_version=6.37.0` creates `v6.37.0`.
+- Local release: `ghost_version=6.37.0` with `local_patch=auto` creates the next `v6.37.0-0.0.N` tag.
+
+To deploy using Docker images, run:
 
 ```bash
 # On the Dokku server
 dokku git:from-image your-ghost-app-name registry-account-name/image-name:tag
 
 e.g.
-dokku git:from-image pesacheck codeforafrica/pesacheck-ghost:v6.21.2
+dokku git:from-image pesacheck codeforafrica/pesacheck-ghost:v6.37.0
 ```
 
-This should pull the specified Ghost image and deploy it as your Dokku app. Make sure to replace `your-ghost-app-name` and `registry-account-name/image-name:tag` with the actual values you want to use.
+This should pull the specified Ghost image and deploy it as your Dokku app. Make sure to replace `your-ghost-app-name` and `registry-account-name/image-name:tag` with the actual values you want to use. For local releases, use the full local tag, for example `codeforafrica/pesacheck-ghost:v6.37.0-0.0.1`.
 
 
 ## Dokku-Specific Configuration Files
@@ -194,12 +217,20 @@ Note: For Ghost to work properly with multiple instances, you'll need a shared f
 
 ## Rollback
 
-If you need to rollback to a previous version:
+For this app, roll back by deploying the previous Docker image tag explicitly. The GitHub release workflow publishes images using the same tag as the GitHub release, for example `v6.37.0` or `v6.37.0-0.0.1`.
+
+Choose the previous tag from the GitHub releases page or Docker Hub, then run:
 
 ```bash
-# List previous releases
-dokku releases:list your-ghost-app-name
+# On the Dokku server
+dokku git:from-image your-ghost-app-name codeforafrica/pesacheck-ghost:previous-tag
 
-# Rollback to a previous release
-dokku releases:rollback your-ghost-app-name <release-number>
+e.g.
+dokku git:from-image pesacheck codeforafrica/pesacheck-ghost:v6.35.0
+```
+
+Use the full tag for local releases:
+
+```bash
+dokku git:from-image pesacheck codeforafrica/pesacheck-ghost:v6.37.0-0.0.1
 ```
