@@ -79,6 +79,71 @@ sudo apt update && sudo apt install libnginx-mod-http-lua
 
 The Lua module should automatically be enabled via symlinking. You can confirm this by checking the contents of `/etc/nginx/modules-enabled/`.
 
+### 6. Lock the origin to Cloudflare (firewall layer)
+
+`nginx.conf.sigil` already rejects any request whose real TCP peer isn't a Cloudflare edge (the `geo $realip_remote_addr $from_cloudflare` block → `403`). Add a host firewall as a second, stronger layer so junk traffic never even reaches Nginx — this stops volumetric floods before they cost you CPU or connection slots.
+
+> [!WARNING]
+> **Do not lock yourself out.** Allow SSH (and any other admin ports) *before* enabling ufw or setting a default-deny policy. The snippet below allows port 22 first.
+
+Cloudflare publishes its ranges at <https://www.cloudflare.com/ips-v4> and <https://www.cloudflare.com/ips-v6>, and changes them occasionally, so don't hand-copy them — drive ufw from the live lists with a script.
+
+Create `/usr/local/bin/refresh-cloudflare-ufw.sh` on the Dokku host:
+
+```bash
+#!/usr/bin/env bash
+# Restrict inbound 80/443 to Cloudflare edge IPs. Idempotent: safe to re-run.
+set -euo pipefail
+
+PORTS=(80 443)
+
+# Fetch current Cloudflare ranges (fail closed — never wipe rules on a bad fetch).
+v4="$(curl -fsS https://www.cloudflare.com/ips-v4)"
+v6="$(curl -fsS https://www.cloudflare.com/ips-v6)"
+[ -n "$v4" ] && [ -n "$v6" ] || { echo "empty Cloudflare list, aborting" >&2; exit 1; }
+
+# Make sure we keep SSH before anything else.
+ufw allow 22/tcp comment 'ssh'
+
+# Drop any previous Cloudflare rules so removed ranges don't linger.
+while ufw status numbered | grep -q 'cloudflare'; do
+  n="$(ufw status numbered | grep 'cloudflare' | head -1 | sed -E 's/^\[[ ]*([0-9]+)\].*/\1/')"
+  yes | ufw delete "$n"
+done
+
+for ip in $v4 $v6; do
+  for port in "${PORTS[@]}"; do
+    ufw allow proto tcp from "$ip" to any port "$port" comment 'cloudflare'
+  done
+done
+
+# Deny direct hits to the web ports from everyone else.
+for port in "${PORTS[@]}"; do
+  ufw deny "$port/tcp" comment 'cloudflare'
+done
+
+ufw --force enable
+ufw reload
+```
+
+Run it, then confirm:
+
+```bash
+sudo chmod +x /usr/local/bin/refresh-cloudflare-ufw.sh
+sudo /usr/local/bin/refresh-cloudflare-ufw.sh
+sudo ufw status verbose
+```
+
+Keep it current with a weekly cron job (Cloudflare rarely changes ranges, but this makes it self-healing):
+
+```bash
+# /etc/cron.d/refresh-cloudflare-ufw
+0 4 * * 1 root /usr/local/bin/refresh-cloudflare-ufw.sh >> /var/log/cloudflare-ufw.log 2>&1
+```
+
+> [!NOTE]
+> The `allow from <cf-ip>` rules must sit **above** the `deny <port>` rules for ufw to match them first — the script's ordering (allows inserted before the denies are appended) handles this. Verify with `ufw status numbered`. Also keep the `set_real_ip_from` / `geo` lists in `nginx.conf.sigil` in sync with these ranges when Cloudflare updates them; both derive from the same source.
+
 ## Deploying to Dokku
 
 It is recommended that you use Docker image deployment on Dokku, as it allows you to use a pre-built Ghost image (like the one defined in this repo).
